@@ -16,6 +16,8 @@ use tap::Tap;
 
 const NUM_VERSIONS: usize = 5;
 
+const REACTIONS_THRESHOLD: u8 = 20; // max 100
+
 struct ReleaseDate {
     release_date: NaiveDate,
     branch_date: NaiveDate,
@@ -293,8 +295,8 @@ weight: {weight}
             },
             branch_date = release_date.branch_date.format("%-d %B, %C%y"),
         );
-        let mut issues_page = octocrab
-            .issues("rust-lang", "rust")
+        let issue_handler = octocrab.issues("rust-lang", "rust");
+        let mut issues_page = issue_handler
             .list()
             .milestone(issues::Filter::Matches(
                 (*milestone_id)
@@ -310,6 +312,7 @@ weight: {weight}
             .await?;
 
         loop {
+            println!("loading reactions");
             for (issue, days_ago) in (&issues_page)
                 .into_iter()
                 .filter_map(|issue| {
@@ -323,7 +326,18 @@ weight: {weight}
                 })
                 .sorted_by_key(|(_, days_ago)| *days_ago)
             {
-                changelog.push_str("- [");
+                let reactions_page = issue_handler
+                    .list_reactions(issue.number)
+                    .per_page(REACTIONS_THRESHOLD + 1)
+                    .send()
+                    .await?;
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+
+                if reactions_page.items.len() >= REACTIONS_THRESHOLD as usize {
+                    changelog.push_str("- [✨ ");
+                } else {
+                    changelog.push_str("- [");
+                }
                 changelog.push_str(issue.title.as_str());
                 changelog.push_str("](");
                 changelog.push_str(issue.html_url.as_str());
